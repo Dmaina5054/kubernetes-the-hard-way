@@ -12,7 +12,7 @@ IPV4_ADDRESS FQDN HOSTNAME POD_SUBNET
 
 Each of the columns corresponds to a machine IP address `IPV4_ADDRESS`, fully qualified domain name `FQDN`, host name `HOSTNAME`, and the IP subnet `POD_SUBNET`. Kubernetes assigns one IP address per `pod` and the `POD_SUBNET` represents the unique IP address range assigned to each machine in the cluster for doing so.
 
-Here is an example machine database similar to the one used when creating this tutorial. Notice the IP addresses have been masked out. Your machines can be assigned any IP address as long as each machine is reachable from each other and the `jumpbox`.
+Here is an example machine database similar to the one used when creating this tutorial. Notice the IP addresses have been masked out. Your machines can be assigned any IP address as long as each machine is reachable from each other and the `jumpbox`- This does not however imply the ips assigned by vagrant/libvirt dhcp, it only implies the flexibility you have in defining the ip addresses for the nodes in the Vagrant file. These are the ips that will be used during internode communication.
 
 ```bash
 cat machines.txt
@@ -41,6 +41,8 @@ su - root
 ```
 
 Edit the `/etc/ssh/sshd_config` SSH daemon configuration file and set the `PermitRootLogin` option to `yes`:
+
+Edit the `/etc/ssh/sshd_config` SSH daemon configuration file and set the `PasswordAuthentication` option to `yes`
 
 ```bash
 sed -i \

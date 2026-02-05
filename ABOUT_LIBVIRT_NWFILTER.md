@@ -9,7 +9,13 @@ sudo virsh dumpxml k8s-network > k8s-network.xml
 </code>
 I noticed that inside the xml there is a section called <filterref>
 <code>
-<filterref filter='clean-traffic'/>
+<interface type='network'>
+  <!-- ... mac address, etc ... -->
+  <filterref filter='clean-traffic'>
+    <!-- This helps the filter know which IP to ALLOW -->
+    <parameter name='IP' value='10.240.0.12'/>
+  </filterref>
+</interface>
 </code>
  
 I went further to actually modify the vm's xml for the specific node i targeted(worker-0) to test if i can actually lock myself out from ssh-ing into it.
@@ -42,8 +48,11 @@ I tried to ssh into the vm using the private key in the .vagrant folder but i wa
 
 Confirmation part. 
 To actually confirm that the nwfilter was responsible for the failed ssh session, i did the same process defined in step 1 but now used the ip from the  results of <code>sudo virsh domifaddr kubernetes-the-hard-way_worker-0</code> and added it to the vm's xml
+This way, i matched the Host's expectations with the VM's reality- My worker-0 node was assigned 192.168.121.40 by the Vagrant/libirt DHCP server on the management interface(eth0). 
 
 I tried  to ssh into my vm again and this time it worked. My ssh command was <code>ssh -i .vagrant/machines/worker-0/libvirt/private_key vagrant@192.168.121.40</code>
+
+The previour failure: When i set the XML to 10.240.0.12, the libvirt clean-traffic droped all packets from the VM since theur source ip(192.168.121.40) did not match the ip in the XML(10.240.0.12)
 
 Note on Vagrant-Libvirt Networking Layers
 • Management Plane (eth0): The "hidden" interface. Used by Vagrant for SSH and provisioning. Usually on the `192.168.121.x` subnet.
