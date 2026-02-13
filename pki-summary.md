@@ -41,3 +41,64 @@ This was the final and most critical physical step.
 **Command**: `scp ca.key ca.crt kube-api-server.* service-accounts.* root@server:~/`
 - **Destination**: Home directory (for now).
 - **Reason**: The Control Plane components will leverage these to bootstrap the cluster services in the next labs.
+
+## 5. PKI Debugging Skills (Critical for SRE Work)
+
+**The Reality**: In production, you'll spend more time debugging certificates than creating them. Most companies use automated tools (cert-manager, cloud PKI), but when things break at 3 AM, you need to know how to diagnose the issue.
+
+### Essential Debugging Commands
+
+**Inspect Certificate Details:**
+```bash
+# View full certificate information
+openssl x509 -in cert.crt -text -noout
+
+# Check expiry dates only
+openssl x509 -in cert.crt -noout -dates
+
+# Check Subject and Issuer
+openssl x509 -in cert.crt -noout -subject -issuer
+```
+
+**Verify Certificate Chain:**
+```bash
+# Verify cert is signed by CA
+openssl verify -CAfile ca.crt server.crt
+
+# Check if cert matches private key
+openssl x509 -noout -modulus -in cert.crt | openssl md5
+openssl rsa -noout -modulus -in cert.key | openssl md5
+# (Hashes should match)
+```
+
+### Common Certificate Errors & Solutions
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `x509: certificate has expired` | Certificate past expiry date | Rotate/renew certificate |
+| `x509: certificate is valid for X, not Y` | SAN mismatch (wrong IP/DNS) | Regenerate cert with correct SANs |
+| `x509: certificate signed by unknown authority` | CA not trusted | Add CA to trust store |
+| `tls: bad certificate` | Wrong cert presented or CN mismatch | Verify correct cert file is being used |
+
+### What You DON'T Need to Memorize
+
+- **OpenSSL generation flags**: You'll rarely create certs manually in production
+- **Exact certificate field syntax**: Tools handle this
+- **Every possible openssl command**: Focus on inspection/verification
+
+### What You DO Need to Know
+
+1. **Where Kubernetes stores certificates:**
+   - Control Plane: `/etc/kubernetes/pki/`
+   - Kubelet: `/var/lib/kubelet/pki/`
+   - User configs: `~/.kube/config`
+
+2. **How to read certificate errors** in logs (API server, kubelet logs)
+
+3. **The relationship between certificates and RBAC** (CN → User, O → Group)
+
+4. **Certificate lifecycle** (creation → distribution → rotation → expiry)
+
+**For CKA**: Understand the concepts and flow. The exam allows access to kubernetes.io docs.
+
+**For SRE Interviews**: Be ready to explain how you'd debug "kubectl suddenly stopped working" or "new node won't join cluster" - both are usually certificate issues.
