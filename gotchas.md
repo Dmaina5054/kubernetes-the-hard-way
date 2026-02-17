@@ -41,3 +41,12 @@
 4. **The "Documentation Backslash" Bug:** In the tutorial distribution loops, some lines end in a backslash (`\`) even though they are the "end" of an `scp` command. If you copy this exactly into a loop, Bash interprets the *next* command in the loop as an argument to the first one, leading to chaotic filenames like `scp` or `root@worker-0:` appearing in your home directory.
 
 ---
+
+## [2026-02-14] Topic: Control Plane Troubleshooting
+**The Gotcha:**
+1. **Scheduler "Unhealthy" (Connection Refused):** `kubectl get cs` shows Scheduler as `Unhealthy` because the binary couldn't find its `.kubeconfig` file.
+2. **The "Localhost" Trap:** Running `kubectl` from the Jumpbox fails with `localhost:8080` or `127.0.0.1:6443` because the `admin.kubeconfig` points to the loopback address.
+
+**The Solution:**
+1. **Check the Logs First:** `journalctl -u kube-scheduler` immediately revealed the missing file path. Always ensure the `.kubeconfig` is moved to the directory defined in the `--config` file (usually `/var/lib/kubernetes/`).
+2. **Context Patching:** Use `kubectl config set-cluster ... --server=https://server.kubernetes.local:6443` to make the Jumpbox aware of the remote server.
