@@ -168,3 +168,18 @@ In "Kubernetes The Hard Way", we use **Static Routes** instead of a dynamic rout
 
 **The Fix:**
 Re-apply the "Next Hop" routes to all relevant machines (Nodes and Jumpbox).
+
+---
+
+## [2026-02-26] Topic: CNI Binary Matching (`type` field)
+**The Incident:**
+Pod creation stuck in `ContainerCreating`. `kubectl describe pod` revealed: `failed to find plugin "broken-switch" in path [/opt/cni/bin]`.
+
+**The Rationale (SRE Deep Dive):**
+The Kubelet provides the "bridge" between Kubernetes and the Linux network stack. 
+- **The Mapping**: When the Kubelet reads `/etc/cni/net.d/10-bridge.conf`, it looks at the `"type": "..."` field.
+- **The Execution**: It then looks into the directory `/opt/cni/bin/` for a binary filing that exact name. 
+- **SRE Lesson**: If you see "plugin not found" errors, it's either a typo in the JSON config or the CNI binaries were never installed/moved to the designated `/opt/cni/bin` directory.
+
+**The Fix:**
+Correct the `type` to match an existing binary (usually `bridge`, `loopback`, `ptp`, etc.) and the Pod will automatically recover on the next Kubelet retry.
