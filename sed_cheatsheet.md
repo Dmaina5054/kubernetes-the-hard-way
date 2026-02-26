@@ -84,3 +84,50 @@ for HOST in worker-0 worker-1; do
   scp 10-bridge.conf root@${HOST}:~/
 done
 ```
+## SRE Log Analysis (The Diagnostic Shield)
+These are essential for CKA troubleshooting and Senior SRE debugging.
+
+### 1. The "Journal Watch"
+```bash
+journalctl -u etcd -f
+```
+- `-u`: Unit (e.g., `etcd.service`).
+- `-f`: Follow (real-time stream).
+
+### 2. Hunting for Errors with `grep`
+```bash
+journalctl -u kube-apiserver | grep -iE "error|fail|reject"
+```
+- `-i`: Case-insensitive.
+- `-E`: Extended regex (allows `|` for multiple patterns).
+
+### 3. Extracting the "Why" with `sed`
+If you have a massive log and want to see only the lines between two timestamps:
+```bash
+sed -n '/2026-02-20 05:00/,/2026-02-20 05:05/p' /var/log/syslog
+```
+- `-n`: Suppress normal output.
+- `/start/,/end/p`: Print (p) only the range matching the patterns.
+## Networking Plumbing Inspection
+Master these to see the "invisible" bridges and cables.
+
+### 1. Inspecting the Bridge (`cbr0`)
+```bash
+# View all bridges and their "plugged" interfaces
+ip link show type bridge
+# OR (older but common)
+brctl show
+```
+
+### 2. Seeing the "Other End" of the Cable
+```bash
+# List all interfaces, looking for the @ symbol (veth pairs)
+ip -c link show
+```
+
+### 3. Crossing the Namespace Boundary
+```bash
+# List all pods and their namespaces from the Node
+crictl inspectp --output json {POD_ID} | jq .info.runtimeSpec.linux.namespaces
+```
+*(Note: Senior SREs use `nsenter` to jump into a pod's namespace to run diagnostics without `kubectl exec`).*

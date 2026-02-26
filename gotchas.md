@@ -50,3 +50,121 @@
 **The Solution:**
 1. **Check the Logs First:** `journalctl -u kube-scheduler` immediately revealed the missing file path. Always ensure the `.kubeconfig` is moved to the directory defined in the `--config` file (usually `/var/lib/kubernetes/`).
 2. **Context Patching:** Use `kubectl config set-cluster ... --server=https://server.kubernetes.local:6443` to make the Jumpbox aware of the remote server.
+---
+
+## [2026-02-20] Topic: Cluster Chaos - Scenario 1 (The Dark Brain)
+**The Sabotage (Controlled Break):**
+1. **Service Disruption**: Stopping the `etcd` service on the control plane.
+2. **Data Isolation**: Renaming `/var/lib/etcd` to simulate data loss or corruption.
+
+**SRE Investigation Objectives:**
+- Observe how `kube-apiserver` reacts when its backing store vanishes.
+- Verify component health using `systemctl status` and `journalctl`.
+- Use `ss -ntlp` to confirm if `2379` (etcd) is listening.
+
+**The Fix:**
+1. **Stop Services**: Gracefully stop `kube-apiserver` and `etcd` to prevent further panics or corruption.
+2. **Data Restoration**: Replace the "amnesiac" `/var/lib/etcd` directory with the backup/original version.
+3. **Restart & Verify**: Start the services and confirm that stateful resources (Pods, Deployments, Secrets) have returned.
+
+---
+
+## [2026-02-20] Topic: Port Identity (The 2379 vs 6379 Trap)
+**The Gotcha:**
+Misreading the `etcd` port (`2379`) as the `Redis` port (`6379`). In a high-pressure troubleshooting scenario, searching for the wrong socket leads to "false negatives" where you think a service is missing when you've simply looked in the wrong place.
+
+**The Solution:**
+Standardize your socket checks. In Kubernetes:
+- **2379**: etcd (The Brain)
+- **6443**: API Server (The Heart)
+- **10250**: Kubelet (The Hands)
+- **6379**: Redis (Not a core K8s component!)
+---
+
+## [2026-02-20] Topic: API Server Panic & Node Persistence
+**The Gotcha:**
+When `etcd` is wiped while `kube-apiserver` is running, the API server might **panic** (`runtime error: index out of range [0]`). This happens because the API server's "compactor" or cache expects a resource version history that no longer exists in the newly initialized etcd.
+
+**The Observation:**
+Nodes might "magically" reappear even after a database wipe. 
+- **The Rationale**: Kubelets are persistent. If their certificates are still valid, they will continuously attempt to register themselves. In a blank cluster, the node objects are recreated, but any custom configurations, deployments, or secrets are **gone forever**.
+
+**The SRE Lesson:**
+A running node list does *not* mean your cluster data is safe. It just means your "workers" are reporting for duty to an empty office. Always verify `Deployments` and `Secrets` to confirm true data integrity.
+
+---
+
+## [2026-02-20] Topic: Node Authorizer & "NODE DENY" Errors
+**The Gotcha:**
+Observing `NODE DENY` errors like `unknown node 'worker-0' cannot get configmap` after a database wipe.
+
+**The Rationale (SRE Deep Dive):**
+The **Node Authorizer** is a special-purpose authorizer that specifically authorizes API requests made by Kubelets. Even if a Kubelet authenticates with a valid cert, the authorizer checks the `etcd` database to see if that node actually exists and if it's authorized to see the requested resource. 
+- In a blank cluster, the node registration might not be fully established, or the global resources (like the `kube-root-ca.crt` ConfigMap) haven't been regenerated yet.
+- The API server says: *"I see your certificate, but I have no record of you in my brain (etcd) as an authorized worker, so you get nothing!"*
+- **The Result**: For 40 seconds, the node is a "Ghost." The API server *thinks* it's `Ready` based on the *last known good state*, even though the actual physical node process is broken. If you wait a minute, the state will transition to `NotReady`. 
+
+---
+
+## [2026-02-24] Topic: Kubeconfig `--embed-certs=true` (Identity Caching)
+**The Observation:**
+Replacing the `/var/lib/kubelet/kubelet.crt` file on disk and restarting the Kubelet did *not* break the node's authentication.
+
+**The Rationale (SRE Deep Dive):**
+During the "Kubernetes The Hard Way" setup, we used the `--embed-certs=true` flag when generating the `.kubeconfig` files. 
+- This takes the raw certificate and key data, encodes it into Base64, and **bakes it directly into the kubeconfig YAML file**.
+- When the Kubelet starts, it reads its identity from the `kubeconfig` (its client credentials) to talk to the API Server. It completely ignored the standalone `.crt` files we modified on disk!
+- **SRE Lesson**: When hunting for an identity issue or rotating certificates, you must check *where* the service is configured to read its certs. If it's using a `kubeconfig`, replacing files around it won't do anything until you update the config file itself!
+
+---
+
+## [2026-02-20] Topic: IPAM & IP Persistence
+**The Question:**
+When etcd is wiped, does the Pod IP change?
+
+**The Rationale (SRE Deep Dive):**
+No. The IP is assigned by the **IPAM (IP Address Management)** plugin (e.g., `host-local`) on the **Worker Node** at the moment of creation. 
+- **The Physical Reality**: The IP sits on the `veth` pair inside the worker node's kernel. As long as the container is running, that IP is "locked."
+- **The API Role**: The API Server is just a registry. It records whatever IP the CNI plugin gave the pod. 
+- **The Persistence**: Wiping etcd removes the *record* of the IP, but doesn't change the *physical* IP. Restoring etcd simply restores the record to match the reality.
+
+---
+
+## [2026-02-24] Topic: Role-Based Access Control (RBAC) & The Node Authorizer
+**The Scenario:**
+We forced the Kubelet on `worker-0` to use the `kube-proxy` certificate (embedded in its `kubeconfig`).
+
+**The Diagnostics (Proving the Crime):**
+Check the API server's reaction to the imposter.
+```bash
+journalctl -u kube-apiserver -f | grep 'Forbidden'
+```
+You will see something like: `User "system:kube-proxy" cannot patch resource "nodes/status"`. The API server knows *who* is asking (Authentication passed), but that user doesn't have the *permission* (RBAC Authorization failed) to update a Node object.
+
+**The Fix:**
+1. Put the correct `kubeconfig` back where it belongs. In our KTHW lab, we still have the original on the server.
+   ```bash
+   scp worker-0.kubeconfig root@worker-0:/var/lib/kubelet/kubeconfig
+   ```
+2. Restart the Kubelet on `worker-0`.
+   ```bash
+   systemctl restart kubelet
+   ```
+3. Watch the "Ghost" come back to life on the Jumpbox:
+   ```bash
+   kubectl get nodes --watch
+   ```
+
+---
+
+## [2026-02-26] Topic: Static Route Persistence (The "Pre-Broken" Network)
+**The Incident:**
+Pings between Pods on different nodes were failing (`Destination Host Unreachable`). Inspecting `ip route` showed that the routes for the remote Pod subnets were missing.
+
+**The Rationale (SRE Deep Dive):**
+In "Kubernetes The Hard Way", we use **Static Routes** instead of a dynamic routing protocol (like BGP). 
+- **The Issue**: Commands like `ip route add` are **ephemeral**. If the underlying VM reboots or the network service restarts, these routes are wiped from the kernel's memory unless they are added to a persistent configuration file (like Netplan or `/etc/network/interfaces`).
+- **The Sign**: If `kubectl get nodes` is healthy but you can't ping Pod IPs from other nodes, the first check should always be the **Node's Routing Table**.
+
+**The Fix:**
+Re-apply the "Next Hop" routes to all relevant machines (Nodes and Jumpbox).

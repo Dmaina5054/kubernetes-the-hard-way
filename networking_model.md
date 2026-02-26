@@ -59,6 +59,41 @@ graph LR
 
 ---
 
+## Inside the Node: The Intra-Node Plumbing 🛠️
+
+The image below illustrates how a Pod's "Isolation" is actually achieved inside a Linux worker node.
+
+![Kubernetes Networking Internals](file:///home/dm/.gemini/antigravity/brain/ffb3fca5-4b80-447f-91d8-fb636132d1cd/uploaded_media_1771440405544.png)
+
+### 1. Network Namespaces (`podns` vs `rootns`)
+**Concept**: Linux Namespaces are the fundamental building blocks of containers. A "Network Namespace" provides a private copy of the network stack (interfaces, routing tables, firewall rules).
+- **rootns**: The node's primary network space. It has the physical `eth0`/`eth1` interfaces.
+- **podns**: A logical sandbox for the Pod. To the processes inside the Pod, it looks like they have their own dedicated network hardware.
+
+### 2. The `pause` Container: The Network Anchor ⚓
+**The Why**: In Kubernetes, all containers in a Pod share the same network stack. But what happens if the main container crashes and restarts? We don't want the IP address or network configuration to disappear.
+- **Role**: The `pause` container (also called the "Sandbox" container) is the first to start. It "holds" the Network Namespace open. 
+- **Benefit**: Other containers (like your app or a sidecar) then "join" this existing namespace. This allows them to talk to each other on `localhost`.
+
+### 3. Veth Pairs & Bridges: The Virtual "Patch Cable" 🔌
+**Concept**: Since the Pod is in a different namespace, it needs a way to talk to the node.
+- **veth (Virtual Ethernet)**: These always come in pairs. Think of them as a virtual Ethernet cable with two ends. One end (`eth0`) sits inside the **podns**, and the other end sits in the **rootns**.
+- **cbr0 (Bridge)**: In many setups, the `veth` ends in the root namespace are plugged into a virtual switch or bridge (`cbr0`). This allows multiple Pods on the same node to talk to each other locally.
+
+### 4. CNI (Cilium): The Orchestrator 🐝
+**Role**: The Container Network Interface (CNI) is the plugin that actually sets this up. When a Pod is created, the Kubelet calls Cilium to:
+1. Create the `veth` pair.
+2. Assign an IP address from the Pod CIDR (e.g., `10.200.x.x`).
+3. Set up the routing rules so the rest of the cluster knows how to reach this IP.
+
+---
+
+> [!TIP]
+> **Deep Dive: Cilium & eBPF**
+> Modern CNIs like **Cilium** often bypass the traditional Linux bridge (`cbr0`) and IPTables entirely. They use **eBPF (Extended Berkeley Packet Filter)**—a technology that allows running code directly in the Linux Kernel. This makes networking significantly faster and more secure by routing packets at the lowest possible level without the overhead of the standard kernel networking stack.
+>
+> [Learn more about eBPF and Cilium](https://cilium.io/get-started/)
+
 ## CKA Command Spotlight
 To verify these layers in the exam:
 1. `ip addr`: Check the physical interfaces (`eth0`, `eth1`).
