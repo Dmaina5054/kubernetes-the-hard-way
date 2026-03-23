@@ -183,3 +183,20 @@ The Kubelet provides the "bridge" between Kubernetes and the Linux network stack
 
 **The Fix:**
 Correct the `type` to match an existing binary (usually `bridge`, `loopback`, `ptp`, etc.) and the Pod will automatically recover on the next Kubelet retry.
+
+---
+
+## [2026-03-12] Topic: The Kubernetes API Evolution (`--generator`)
+**The Gotcha:**
+Running commands from older Kubernetes books (like KUAR 1st/2nd Edition) fails with `unknown flag: --generator`. For example:
+`kubectl run kuard --generator=run-pod/v1 --image=gcr.io/kuar-demo/kuard-amd64:blue`
+
+**The Rationale (SRE Historical Context):**
+Kubernetes is a rapidly evolving API. In versions prior to v1.18, `kubectl run` was a "magic" command that could create Deployments, Jobs, or Pods depending on the `--generator` flag. 
+- As of K8s v1.18, the developers radically simplified this to match the UNIX philosophy of doing one thing well.
+- `kubectl run` **now ONLY creates Pods**. The `--generator` flag was completely removed because it's no longer needed to specify what you want to create.
+- To create a Deployment, you now explicitly use `kubectl create deployment`.
+
+**The Fix:**
+Translate the older command to the modern syntax. To run a standalone pod, just drop the generator flag:
+`kubectl run kuard --image=gcr.io/kuar-demo/kuard-amd64:blue`

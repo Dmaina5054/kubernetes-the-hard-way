@@ -131,3 +131,37 @@ ip -c link show
 crictl inspectp --output json {POD_ID} | jq .info.runtimeSpec.linux.namespaces
 ```
 *(Note: Senior SREs use `nsenter` to jump into a pod's namespace to run diagnostics without `kubectl exec`).*
+---
+
+## CKA Speed & Imperatives (KUAR Chapter 4 Mastery)
+The CKA is a race against time. Use these to avoid writing YAML by hand.
+
+### 1. Template Generation (Dry Run)
+```bash
+# Generate a Pod YAML instantly
+kubectl run nginx --image=nginx --dry-run=client -o yaml > pod.yaml
+# Generate a Namespace
+kubectl create ns cka-mastery --dry-run=client -o yaml
+```
+
+### 2. SRE Speed: Context & Instant Deletion
+```bash
+# Lock into a namespace (Avoid typing -n XYZ every time)
+kubectl config set-context --current --namespace=cka-mastery
+
+# Instant Force Delete (Save 30 seconds per pod)
+kubectl delete po <NAME> --force --grace-period=0
+```
+
+### 3. Rapid Labels & Inspection
+```bash
+# Add/Overwrite labels on live objects
+kubectl label po nginx env=prod --overwrite
+
+# Verify IP and Node placement without 'describe'
+kubectl get po -o wide
+```
+
+> [!WARNING]
+> **The Syntax Trap**: `kubectl run pod nginx` is WRONG. It creates a pod named `pod` and tries to run a command `nginx`. 
+> **Correct**: `kubectl run nginx --image=nginx`.
